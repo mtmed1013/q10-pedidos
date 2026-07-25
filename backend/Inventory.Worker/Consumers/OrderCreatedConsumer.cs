@@ -36,7 +36,20 @@ public class OrderCreatedConsumer : BackgroundService
             )
         };
 
-        var connection = await factory.CreateConnectionAsync();
+        RabbitMQ.Client.IConnection connection = null;
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                connection = await factory.CreateConnectionAsync();
+                break;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error connecting to RabbitMQ, retrying in 5 seconds...");
+                await Task.Delay(5000, stoppingToken);
+            }
+        }
 
         var channel = await connection.CreateChannelAsync();
 
@@ -74,7 +87,6 @@ public class OrderCreatedConsumer : BackgroundService
                 var inventoryService =
                     scope.ServiceProvider
                         .GetRequiredService<IInventoryService>();
-
 
 
                 bool reserved = await inventoryService.ProcessOrderAsync(
