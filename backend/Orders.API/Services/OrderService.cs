@@ -1,8 +1,11 @@
 using System;
+using Orders.API.Messages;
 using Orders.API.Dtos;
 using Orders.API.Entities;
 using Orders.API.Helpers;
-using Orders.API.Repositories.interfaces;
+using Orders.API.Messaging;
+using Orders.API.Messaging.Interfaces;
+using Orders.API.Repositories.Interfaces;
 using Orders.API.Services.interfaces;
 using Orders.API.Services.Transforms;
 using Orders.API.Services.Validators;
@@ -12,15 +15,17 @@ namespace Orders.API.Services;
 public class OrderService : IOrderService
 {
     private readonly IOrderRepository _repository;
-    
-    public OrderService(IOrderRepository repository)
+    private readonly IMessagePublisher _publisher;
+
+    public OrderService(IOrderRepository repository, IMessagePublisher publisher)
     {
         _repository = repository;
+        _publisher = publisher;
     }
 
     public async Task<Pedido> GetByIdAsync(Guid uuid)
     {
-        Pedido pedido =  await _repository.GetByIdAsync(uuid);
+        Pedido pedido = await _repository.GetByIdAsync(uuid);
         GeneralValidator.ValidateDataExists(pedido, "Pedido no encontrado");
         return pedido;
     }
@@ -34,6 +39,18 @@ public class OrderService : IOrderService
     {
         OrderValidator.ValidateAdd(dto);
         Pedido entity = OrderTransform.TransformToEntity(dto);
-        return await _repository.AddAsync(entity);
+        await _repository.AddAsync(entity);
+        await _publisher.PublishAsync(
+        new OrderCreatedMessage
+        {
+            EventId = Guid.NewGuid(),
+            OrderId = entity.Id,
+            Sku = entity.Sku,
+            Cantidad = entity.Cantidad,
+            OcurridoEn = DateTime.UtcNow
+        },
+        QueueNames.OrderCreated
+    );
+        return entity;
     }
 }

@@ -2,7 +2,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Orders.API.Data;
 using Orders.API.Entities;
-using Orders.API.Repositories.interfaces;
+using Orders.API.Repositories.Interfaces;
 
 namespace Orders.API.Repositories;
 
@@ -27,6 +27,13 @@ public class OrderRepository : IOrderRepository
     public async Task<Pedido> AddAsync(Pedido entity)
     {
         await _context.Pedidos.AddAsync(entity);
+        await _context.SaveChangesAsync();
+        return entity;
+    }
+
+    public async Task<Pedido> UpdAsync(Pedido entity)
+    {
+        _context.Pedidos.Update(entity);
         await _context.SaveChangesAsync();
         return entity;
     }
