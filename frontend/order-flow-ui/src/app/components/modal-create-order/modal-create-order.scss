@@ -1,0 +1,26 @@
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.full {
+  grid-column: span 2;
+}
+
+input,
+.p-inputnumber {
+  width: 100%;
+}
+
+.error {
+  color: var(--p-red-500);
+  font-size: .8rem;
+  margin-top: .25rem;
+}

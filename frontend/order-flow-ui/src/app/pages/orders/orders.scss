@@ -1,0 +1,54 @@
+:host ::ng-deep .p-datatable-wrapper {
+  overflow-x: auto;
+}
+
+.page {
+  padding: 1.5rem;
+  width: 100%;
+
+  @media (max-width: 768px) {
+    padding: 0.75rem;
+  }
+}
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+@media (max-width: 768px) {
+  .header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.8rem;
+  }
+}
+
+.header > div {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.logo-q10 {
+  width: 150px;
+
+  @media (max-width: 768px) {
+    width: 90px;
+  }
+}
+
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+
+  @media (max-width: 768px) {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+.search {
+  margin-left: auto;
+}

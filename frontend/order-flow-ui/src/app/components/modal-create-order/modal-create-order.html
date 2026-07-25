@@ -1,0 +1,43 @@
+<p-dialog header="Crear pedido" [(visible)]="visible" [modal]="true" [style]="{ width: '450px' }">
+  <form [formGroup]="form" class="form-grid">
+    <div class="field full">
+      <label> Cliente </label>
+
+      <input
+        pInputText
+        formControlName="clienteNombre"
+        placeholder="Ingrese el nombre del cliente"
+      />
+      @if (hasError('clienteNombre')) {
+        <small class="error"> El cliente es obligatorio </small>
+      }
+    </div>
+    <div class="field">
+      <label> SKU </label>
+
+      <input
+        pInputText
+        formControlName="sku"
+        placeholder="Ingrese SKU"
+      />
+      @if (hasError('sku')) {
+        <small class="error"> El SKU es obligatorio </small>
+      }
+    </div>
+
+    <div class="field">
+      <label> Cantidad </label>
+
+      <p-inputnumber formControlName="cantidad" placeholder="Ingrese la cantidad"> </p-inputnumber>
+      @if (hasError('cantidad')) {
+        <small class="error"> La cantidad es obligatoria </small>
+      }
+    </div>
+  </form>
+
+  <ng-template #footer>
+    <button pButton variant="outlined" label="Cancelar" (click)="close()">Cancelar</button>
+
+    <button pButton label="Guardar" (click)="submit()">Guardar</button>
+  </ng-template>
+</p-dialog>
