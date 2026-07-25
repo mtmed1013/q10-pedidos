@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Inventory.Worker/Inventory.Worker.csproj" />
+  <Project Path="Orders.API/Orders.API.csproj" />
+</Solution>
