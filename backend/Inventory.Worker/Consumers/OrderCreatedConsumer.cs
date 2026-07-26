@@ -2,8 +2,6 @@ using System.Text;
 using System.Text.Json;
 using Inventory.Worker.Messages;
 using Inventory.Worker.Messaging;
-using Inventory.Worker.Messaging.Interfaces;
-using Inventory.Worker.Repositories.Interfaces;
 using Inventory.Worker.Services.Interfaces;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
@@ -82,63 +80,11 @@ public class OrderCreatedConsumer : BackgroundService
                 }
 
                 using var scope = _scopeFactory.CreateScope();
-                var inboundRepository = scope.ServiceProvider
-                    .GetRequiredService<IInboundOrderRepository>();
+
                 var inventoryService = scope.ServiceProvider
                     .GetRequiredService<IInventoryService>();
-                var publisher = scope.ServiceProvider
-                    .GetRequiredService<IMessagePublisher>();
 
-                var inbound = await inboundRepository.GetByIdAsync(message.EventId);
-
-                if (inbound is null)
-                {
-                    await inventoryService.ProcessOrderAsync(
-                        message.EventId,
-                        message.OrderId,
-                        message.Sku,
-                        message.Cantidad);
-
-                    inbound = await inboundRepository.GetByIdAsync(message.EventId);
-                }
-
-                if (inbound?.Estado == "Pending" && inbound.HasStock)
-                {
-                    await inventoryService.ReserveStockAsync(
-                        inbound.Sku,
-                        inbound.Cantidad);
-
-                    inbound.Estado = "Reserved";
-                    await inboundRepository.UpdateAsync(inbound);
-
-                    await publisher.PublishAsync(
-                        new StockReservedMessage
-                        {
-                            EventId = Guid.NewGuid(),
-                            OrderId = message.OrderId,
-                            Sku = message.Sku,
-                            Cantidad = message.Cantidad,
-                            OcurridoEn = DateTime.UtcNow
-                        },
-                        QueueNames.StockReserved);
-                }
-                else if (inbound?.Estado == "Pending")
-                {
-                    inbound.Estado = "Rejected";
-                    await inboundRepository.UpdateAsync(inbound);
-
-                    await publisher.PublishAsync(
-                        new StockRejectedMessage
-                        {
-                            EventId = Guid.NewGuid(),
-                            OrderId = message.OrderId,
-                            Sku = message.Sku,
-                            Cantidad = message.Cantidad,
-                            Motivo = "Stock insuficiente",
-                            OcurridoEn = DateTime.UtcNow
-                        },
-                        QueueNames.StockRejected);
-                }
+                await inventoryService.ProcessOrderCreatedAsync(message);
 
                 await channel.BasicAckAsync(args.DeliveryTag, false);
             }

@@ -160,6 +160,20 @@ Modelos.
 Configuración por ambientes.
 Se eligió polling cada cinco segundos porque el enunciado lo acepta y reduce la complejidad frente a SignalR. El trade-off es que las actualizaciones no son instantáneas y se generan solicitudes periódicas, pero para el volumen esperado es una decisión proporcional.
 
+# Test
+* Idempotencia
+* Transiciones de estado
+* Validación de negocio
+
+Se puede probar asi
+```bash
+dotnet test Inventory.Worker.Tests/Inventory.Worker.Tests.csproj
+```
+
+```bash
+dotnet test Orders.API.Tests/Orders.API.Tests.csproj
+```
+
 ## Docker y configuración
 
 Cada aplicación tiene su propio Dockerfile y Docker Compose levanta:
@@ -180,10 +194,6 @@ Antes de levantar los contenedores, se debe crear el archivo local `.env`:
 cp .env.example .env
 ```
 
-# Existen diferentes errores que se pueden presentar
-
-Uno de los errores es que puedo reintentar la conexión con rabittMQ si este esta caido, pero hay cosas que podrían pasar, por ejemplo si una solicitud, es publicada y el worker la toma, pero mientras esta trabajando el rabbitMQ se cae en el proceso de publicación de procesamiento, el descuento se hizo pero el mensaje no llegó a la cola, resultando en un estado inconsistente donde el stock está reservado pero el pedido aparece como pendiente, con un poco
-mas de tiempo podría tal vez llegar a una solución.
 
 ### Requisitos
 

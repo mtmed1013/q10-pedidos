@@ -89,7 +89,7 @@ export class Orders implements OnInit {
           this.messageService.add({
             severity: 'error',
             summary: 'Error',
-            detail: error.error?.message ?? 'Ocurrio un error inesperado',
+            detail: error.error?.Message ?? 'Ocurrio un error inesperado',
           });
 
           return of(null);

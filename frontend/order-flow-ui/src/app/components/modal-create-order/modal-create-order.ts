@@ -94,7 +94,7 @@ export class ModalCreateOrder implements OnInit {
           this.messageService.add({
             severity: 'error',
             summary: 'Error',
-            detail: error?.error?.message ?? 'Error al cargar SKUs',
+            detail: error?.error?.Message ?? 'Error al cargar SKUs',
           });
           return of(null);
         }),
