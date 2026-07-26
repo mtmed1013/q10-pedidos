@@ -1,0 +1,175 @@
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: q10-sqlserver
+
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "${DB_PASSWORD:?DB_PASSWORD no está configurada}"
+
+    expose:
+      - "1433"
+
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "bash -c 'echo > /dev/tcp/127.0.0.1/1433' || exit 1"
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+
+    restart: unless-stopped
+
+    networks:
+      - dokploy-network
+
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: q10-rabbitmq
+
+    environment:
+      RABBITMQ_DEFAULT_USER: "${RABBITMQ_USER:?RABBITMQ_USER no está configurado}"
+      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD no está configurado}"
+
+    expose:
+      - "5672"
+
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "rabbitmq-diagnostics",
+          "-q",
+          "check_running"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+    restart: unless-stopped
+
+    networks:
+      - dokploy-network
+
+
+  orders-api:
+    build:
+      context: ./backend/Orders.API
+      dockerfile: Dockerfile
+
+    container_name: q10-orders-api
+
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+    environment:
+      ASPNETCORE_ENVIRONMENT: "Production"
+      ASPNETCORE_URLS: "http://+:8080"
+
+      ConnectionStrings__DefaultConnection: "Server=sqlserver,1433;Database=${DB_NAME:-Q10Pedidos};User Id=${DB_USER:-sa};Password=${DB_PASSWORD};TrustServerCertificate=True"
+
+      RabbitMQ__Host: "${RABBITMQ_HOST:-rabbitmq}"
+      RabbitMQ__Port: "${RABBITMQ_PORT:-5672}"
+      RabbitMQ__UserName: "${RABBITMQ_USER}"
+      RabbitMQ__Password: "${RABBITMQ_PASSWORD}"
+
+    expose:
+      - "8080"
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "bash -c 'echo > /dev/tcp/127.0.0.1/8080' || exit 1"
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+
+    restart: unless-stopped
+
+    networks:
+      - dokploy-network
+
+
+  inventory-worker:
+    build:
+      context: ./backend/Inventory.Worker
+      dockerfile: Dockerfile
+
+    container_name: q10-inventory-worker
+
+    depends_on:
+      orders-api:
+        condition: service_healthy
+      sqlserver:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+    environment:
+      DOTNET_ENVIRONMENT: "Production"
+
+      ConnectionStrings__DefaultConnection: "Server=sqlserver,1433;Database=${DB_NAME:-Q10Pedidos};User Id=${DB_USER:-sa};Password=${DB_PASSWORD};TrustServerCertificate=True"
+
+      RabbitMQ__Host: "${RABBITMQ_HOST:-rabbitmq}"
+      RabbitMQ__Port: "${RABBITMQ_PORT:-5672}"
+      RabbitMQ__UserName: "${RABBITMQ_USER}"
+      RabbitMQ__Password: "${RABBITMQ_PASSWORD}"
+
+    restart: unless-stopped
+
+    networks:
+      - dokploy-network
+
+
+  frontend:
+    build:
+      context: ./frontend/order-flow-ui
+      dockerfile: Dockerfile
+
+    container_name: q10-frontend
+
+    depends_on:
+      orders-api:
+        condition: service_healthy
+
+    expose:
+      - "80"
+
+    restart: unless-stopped
+
+    networks:
+      - dokploy-network
+
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.q10-pedidos.rule=Host(`${DOMAIN:-q10.mtmed.site}`)"
+      - "traefik.http.routers.q10-pedidos.entrypoints=web"
+      - "traefik.http.services.q10-pedidos.loadbalancer.server.port=80"
+      - "traefik.docker.network=dokploy-network"
+
+
+volumes:
+  sqlserver_data: {}
+  rabbitmq_data: {}
+
+
+networks:
+  dokploy-network:
+    external: true
