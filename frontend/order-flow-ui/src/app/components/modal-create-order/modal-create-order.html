@@ -15,11 +15,25 @@
     <div class="field">
       <label> SKU </label>
 
-      <input
-        pInputText
+      <p-select
+        [options]="stockItems()"
         formControlName="sku"
-        placeholder="Ingrese SKU"
-      />
+        optionLabel="label"
+        optionValue="id"
+        [filter]="true"
+        filterBy="label"
+        [showClear]="true"
+        placeholder="Seleccione SKU"
+        class="w-full"
+        appendTo="body"
+      >
+        <ng-template #selectedItem let-selectedOption>
+          <div>{{ selectedOption?.label }}</div>
+        </ng-template>
+        <ng-template #item let-sku>
+          <div>{{ sku.label }}</div>
+        </ng-template>
+      </p-select>
       @if (hasError('sku')) {
         <small class="error"> El SKU es obligatorio </small>
       }
