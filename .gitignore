@@ -29,3 +29,8 @@
 
 # EF Core local files
 appsettings.Development.json
+
+# Local environment variables
+.env
+.env.*
+!.env.example

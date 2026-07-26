@@ -24,7 +24,7 @@ public class AppDbContext : DbContext
 
         modelBuilder.Entity<InboundOrder>(entity =>
         {
-            entity.ToTable("InventoryInbox");
+            entity.ToTable("InboundOrder");
             entity.HasKey(x => x.EventId);
             entity.Property(x => x.Sku).HasMaxLength(100).IsRequired();
             entity.Property(x => x.Estado).HasMaxLength(20).IsRequired();

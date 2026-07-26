@@ -32,7 +32,8 @@ public class InventoryService : IInventoryService
             OrderId = orderId,
             Sku = sku,
             Cantidad = cantidad,
-            Estado = hasStock ? "Pending" : "Rejected",
+            Estado = "Pending",
+            HasStock = hasStock,
             ProcesadoEn = DateTime.UtcNow
         };
 

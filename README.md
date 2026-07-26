@@ -13,7 +13,177 @@ El proyecto incluye los siguientes servicios:
 Para este caso en el registor de Pedido, me tome el atrevimiento de crear una lista desplegable para seleccionar los productos con el SKU, debido a que me parecio una manera mas natural de realizar un pedido sobre lo existente.
 
 
+# Cómo se manejó la idempotencia
 
+Cada evento `OrderCreated` contiene un `EventId` único. Inventory.Worker registra este identificador en la tabla `InboundOrder`, donde `EventId` es la llave primaria.
+
+Cuando llega un evento:
+
+1. Inventory.Worker consulta si el `EventId` ya está registrado.
+2. Si no existe, registra la solicitud con estado `Pending` y almacena si existe disponibilidad.
+3. Si está `Pending` y tiene disponibilidad, descuenta el stock y cambia el registro a `Reserved`.
+4. Si está `Pending` y no tiene disponibilidad, cambia el registro a `Rejected`.
+5. Si el evento vuelve a llegar y ya está `Reserved` o `Rejected`, no se vuelve a modificar el stock.
+
+De esta manera, un evento duplicado que ya terminó su procesamiento no produce un segundo descuento.
+
+Como trade-off, la actualización del stock y el cambio de estado de `InboundOrder` se realizan en operaciones separadas. Una caída exactamente después de guardar el descuento y antes de marcar el evento como `Reserved` podría permitir que una reentrega vuelva a procesarlo. En una solución de producción ambas operaciones deberían ejecutarse dentro de una misma transacción.
+
+# Arquitectura
+
+La solución se organizó como un monorepositorio compuesto por dos aplicaciones backend independientes y una aplicación frontend:
+* Orders.API: administra la creación y el estado de los pedidos.
+* Inventory.Worker: procesa las solicitudes de inventario.
+* Aplicación Angular: permite crear pedidos y consultar sus estados.
+* RabbitMQ: desacopla el procesamiento de pedidos e inventario.
+* SQL Server: persiste pedidos, inventario y eventos recibidos.
+
+Esta separación permite ejecutar y desplegar cada aplicación de manera independiente, aunque para simplificar la prueba ambos servicios backend utilizan la misma base de datos.
+
+## Arquitectura por capas
+
+Dentro de cada servicio backend se utilizó una arquitectura por capas orientada a separar responsabilidades. No se buscó implementar Clean Architecture de manera estricta, sino mantener una estructura sencilla y proporcional al alcance de la prueba.
+### Controllers
+
+Los controladores son responsables únicamente de recibir solicitudes HTTP, delegar el caso de uso al servicio correspondiente y construir la respuesta HTTP.
+No contienen validaciones de negocio ni acceso directo a Entity Framework.
+### DTOs
+
+Los DTO representan los contratos de entrada y salida de la API. Permiten evitar que el contrato HTTP dependa directamente de las entidades persistidas en la base de datos.
+### Validators
+
+Las validaciones se encuentran separadas de los controladores y repositorios. Esto permite concentrar las reglas de entrada, por ejemplo:
+* Nombre del cliente obligatorio.
+* SKU obligatorio y existente.
+* Cantidad entre 1 y 100.
+La decisión evita duplicar validaciones y permite probarlas independientemente.
+
+### Transforms
+
+Los transformadores convierten los DTO en entidades del dominio. Así, OrderService no necesita conocer los detalles de construcción de un Pedido, y los cambios en el contrato HTTP no se propagan directamente a la persistencia.
+
+### Services
+
+Los servicios contienen la coordinación de los casos de uso.
+Por ejemplo, OrderService:
+1. Valida la solicitud.
+2. Comprueba que el SKU exista.
+3. Transforma el DTO.
+4. Persiste el pedido como Pending.
+5. Solicita la publicación de OrderCreated.
+La lógica se mantiene fuera del controlador para que el mismo caso de uso pueda reutilizarse y probarse sin depender directamente de HTTP.
+
+### Repositories
+
+Los repositorios encapsulan el acceso a Entity Framework Core. Los servicios expresan operaciones del negocio —buscar pedido, consultar stock, actualizar estado— sin implementar directamente consultas SQL o manipular el contexto.
+Esta separación añade algunas interfaces y clases, pero facilita:
+* Sustituir o simular la persistencia en pruebas.
+* Mantener las consultas concentradas.
+* Evitar que la lógica de negocio dependa de Entity Framework.
+* Cambiar detalles de persistencia sin modificar controladores o consumidores.
+
+### Consumers and Messaging
+
+La integración con RabbitMQ se mantiene separada de los servicios mediante consumidores y publishers.
+Los consumidores se responsabilizan de:
+* Recibir y deserializar mensajes.
+* Delegar el procesamiento a servicios.
+* Realizar Ack o Nack.
+Los servicios se ocupan de la lógica de inventario o de las transiciones de estado. Esta separación evita mezclar detalles de RabbitMQ con reglas de negocio.
+
+### Middleware
+
+El manejo de excepciones HTTP está centralizado en un middleware. Esto evita repetir bloques try/catch en cada controlador y mantiene un formato uniforme de errores para el frontend.
+
+### Inyección de dependencias
+
+Las dependencias se registran en Program.cs y se consumen a través de interfaces:
+* Controller → Service → Repository → DbContext
+* Consumer   → Service → Repository → DbContext
+Por ejemplo, el controlador depende de IOrderService, no de OrderService, y el servicio depende de interfaces de repositorio y mensajería.
+Esta decisión reduce el acoplamiento y facilita sustituir implementaciones durante las pruebas.
+
+### Comunicación asíncrona
+
+Se eligió RabbitMQ porque la reserva de inventario no necesita ocurrir dentro de la misma solicitud HTTP y lo sugieren en la prueba.
+El flujo es:
+Orders API
+    │ guarda Pedido = Pending
+    ▼
+OrderCreated
+    │
+    ▼
+Inventory Worker
+    │
+    ├── StockReserved
+    └── StockRejected
+            │
+            ▼
+## Orders API actualiza el pedido
+
+Esto introduce consistencia eventual: el POST devuelve inicialmente un pedido Pending y, después de procesar los eventos, cambia a Confirmed o Rejected.
+La ventaja es que Orders no depende de que Inventory responda de manera síncrona. La desventaja es que deben contemplarse mensajes duplicados, fallos de publicación y pedidos que permanezcan Pending.
+
+## Persistencia compartida
+
+Para mantener la solución proporcional al tiempo de la prueba, ambos servicios usan una instancia compartida de SQL Server.
+
+### Ventajas:
+
+Un solo contenedor de datos.
+Migraciones y seed sencillos.
+Menor complejidad operativa.
+Orders puede validar fácilmente que el SKU exista.
+
+### Trade-off:
+
+Orders e Inventory quedan acoplados al mismo esquema.
+No es un aislamiento completo de microservicios.
+Un cambio de esquema puede afectar a ambos servicios.
+Con más tiempo, cada servicio podría ser dueño de su base de datos o esquema y compartir información exclusivamente mediante eventos. Para esta prueba se priorizó una solución fácil de ejecutar y explicar.
+
+## Contratos de eventos
+
+Cada servicio mantiene sus propias clases de mensajes. Esto evita crear una librería compartida que acople las compilaciones de ambos proyectos.
+El trade-off es que los contratos pueden desincronizarse. En una solución mayor utilizaría:
+Un paquete versionado de contratos.
+Validación de esquemas.
+Versionado explícito de eventos.
+Para el alcance actual, mantener contratos pequeños y equivalentes resulta suficiente.
+
+## Frontend
+
+El frontend separa:
+Componentes visuales.
+Servicios HTTP.
+Modelos.
+Configuración por ambientes.
+Se eligió polling cada cinco segundos porque el enunciado lo acepta y reduce la complejidad frente a SignalR. El trade-off es que las actualizaciones no son instantáneas y se generan solicitudes periódicas, pero para el volumen esperado es una decisión proporcional.
+
+## Docker y configuración
+
+Cada aplicación tiene su propio Dockerfile y Docker Compose levanta:
+* Frontend.
+* Orders API.
+* Inventory Worker.
+* RabbitMQ.
+* SQL Server.
+La configuración sensible se externalizó mediante variables de entorno. .env contiene la configuración local y no se versiona; .env.example informa qué variables necesita el sistema sin exponer secretos.
+
+## Configuración de variables de entorno
+
+El repositorio contiene un archivo `.env.example` con las variables necesarias para ejecutar el proyecto.
+
+Antes de levantar los contenedores, se debe crear el archivo local `.env`:
+
+```bash
+cp .env.example .env
+```
+
+# Existen diferentes errores que se pueden presentar
+
+Uno de los errores es que puedo reintentar la conexión con rabittMQ si este esta caido, pero hay cosas que podrían pasar, por ejemplo si una solicitud, es publicada y el worker la toma, pero mientras esta trabajando el rabbitMQ se cae en el proceso de publicación de procesamiento, el descuento se hizo pero el mensaje no llegó a la cola, resultando en un estado inconsistente donde el stock está reservado pero el pedido aparece como pendiente, con un poco
+mas de tiempo podría tal vez llegar a una solución.
 
 ### Requisitos
 
@@ -57,19 +227,22 @@ La imagen estándar de SQL Server 2022 puede presentar problemas al ejecutarse m
 Para ejecutar el proyecto localmente en uno de estos equipos, ejecuta el siguiente comando:
 
 ```bash
-docker compose -f docker-compose.dev.yml up -d --build
+docker compose -f docker-compose-arm64.yml up -d --build
 
 ```
 Docker Compose construirá y levantará los servicios respetando el siguiente orden:
 
+
 ```text
-SQL Server ─────┐
-                ├── Orders.API ─── Frontend
-RabbitMQ ───────┤
-                └── Inventory.Worker
+SQL Server ───┐
+              ├── Orders.API ─── Inventory.Worker
+RabbitMQ ─────┘         │
+                        └── Frontend
 ```
 
-SQL Server y RabbitMQ cuentan con comprobaciones de estado. La API y el worker no iniciarán hasta que ambos servicios se encuentren disponibles.
+SQL Server y RabbitMQ cuentan con comprobaciones de estado. Orders.API espera a que ambos estén disponibles y ejecuta sus migraciones.
+
+Inventory.Worker espera a que Orders.API esté saludable antes de iniciar. Esto garantiza que las migraciones de `Pedidos` y `Stock` se ejecuten antes de la migración de `InboundOrder`.
 
 ---
 
@@ -97,6 +270,16 @@ Los datos iniciales de inventario son:
 | SKU005 | 2 |
 
 ---
+
+`Inventory.Worker` ejecuta automáticamente las migraciones de Entity Framework durante su inicio.
+
+
+En una base de datos nueva, este proceso:
+
+1. Crea la tabla `InboundOrder`.
+
+La tabla es la encargada de validar si una solicitud ya fue procesada o no y emitir una respuesta a rabbitMQ
+y asi Orders.API pueda tomarla  y procesarla
 
 ## Verificar los contenedores
 
@@ -127,12 +310,9 @@ Una vez iniciado el proyecto, estarán disponibles las siguientes direcciones:
 | RabbitMQ Management | `http://localhost:15672` |
 | SQL Server | `localhost:1433` |
 
-Credenciales de RabbitMQ:
+Las credenciales de RabbitMQ deben configurarse en el archivo `.env`. El archivo `.env.example` muestra las variables necesarias sin incluir credenciales reales.
 
-```text
-Usuario: guest
-Contraseña: guest
-```
+
 
 ---
 
@@ -208,19 +388,42 @@ docker compose down -v
 
 ---
 
-# Cómo manejar los fallos
+# Manejo de fallos
 
-## Si Inventory no responde
-El comportamiento razonable es que el pedido permanezca **Pending** . No recomiendo rechazarlo automáticamente por timeout: Inventory podría haber descontado stock y haberse perdido solamente la respuesta.
-Con colas durables, mensajes persistentes y Outbox:
-* El pedido continúa Pending.
-* RabbitMQ conserva OrderCreated.
-* Cuando Inventory vuelve, procesa el mensaje.
-* La interfaz sigue consultando hasta recibir Confirmed o Rejected.
-* Un Pending demasiado antiguo puede mostrarse como “demorado” y generar una alerta operativa.
+## Si Inventory.Worker no está disponible
+
+Si Orders.API publica correctamente el evento, pero Inventory.Worker no está disponible, el pedido permanece en estado `Pending`.
+Mientras RabbitMQ continúe disponible, el evento permanecerá en la cola hasta que Inventory.Worker vuelva a conectarse y pueda procesarlo. 
+Cuando el Worker se recupere, el pedido podrá cambiar a `Confirmed` o `Rejected`.
+No se rechaza automáticamente un pedido por timeout, porque Inventory podría estar temporalmente fuera de servicio y recuperarse posteriormente.
+
+## Si RabbitMQ está caído cuando Orders.API publica
+
+Orders.API guarda primero el pedido en la base de datos con estado `Pending` y después intenta publicar el evento `OrderCreated`.
+
+Si RabbitMQ está caído durante la publicación:
+
+1. El pedido ya quedó guardado como `Pending`.
+2. La publicación genera una excepción.
+3. El endpoint responde con un error `500`.
+4. Actualmente no existe un mecanismo automático que vuelva a publicar el evento.
+
+Con un poco mas de tiempo podria definir que todo lo pending sin una publicación se pueda reintentar automáticamente.
+
+Por lo tanto, el pedido por ahora puede permanecer en estado `Pending` aunque nunca haya llegado a Inventory.Worker.
+
+
+## Si Inventory reserva el stock pero no puede publicar el resultado
+
+Inventory.Worker descuenta el stock y posteriormente publica `StockReserved` o `StockRejected`.
+
+Si RabbitMQ falla durante esa publicación, el pedido puede permanecer `Pending` en Orders.API aunque el inventario ya haya sido procesado.
+
+La implementación actual registra el procesamiento en `InboundOrder`, pero no cuenta con un Outbox para recuperar publicaciones de respuesta pendientes. En una solución de producción agregaría un mecanismo de reintentos controlados, Outbox y una cola de mensajes muertos.
 
 # Que haría con mas tiempo
 
 * Implementaría WebSockets
 * Implementaria Kubernetes , actualmente lo desplegare en dokploy sobre servidores x64 personal
 expuesto con cloudflare.
+* Con más tiempo implementaría el patrón Outbox para guardar el pedido y el evento en la misma transacción, y un proceso en segundo plano se encargaría de publicar los eventos pendientes, este proceso lo consulte en IA, solo que no lo implemente porque en mi experiencia me gusta interiorizar lo que estoy haciendo para en caso de implementarlo, sea con mi estructura.

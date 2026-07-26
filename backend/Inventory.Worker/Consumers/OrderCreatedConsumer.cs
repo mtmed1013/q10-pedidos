@@ -31,7 +31,11 @@ public class OrderCreatedConsumer : BackgroundService
         var factory = new ConnectionFactory
         {
             HostName = _configuration["RabbitMQ:Host"] ?? "localhost",
-            Port = int.Parse(_configuration["RabbitMQ:Port"] ?? "5672")
+            Port = int.Parse(_configuration["RabbitMQ:Port"] ?? "5672"),
+            UserName = _configuration["RabbitMQ:UserName"]
+                ?? throw new InvalidOperationException("RabbitMQ:UserName no configurado"),
+            Password = _configuration["RabbitMQ:Password"]
+                ?? throw new InvalidOperationException("RabbitMQ:Password no configurado")
         };
 
         IConnection? connection = null;

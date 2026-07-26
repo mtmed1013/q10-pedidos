@@ -11,7 +11,7 @@ services:
 
     environment:
       ACCEPT_EULA: "Y"
-      MSSQL_SA_PASSWORD: "S4Port@2026"
+      MSSQL_SA_PASSWORD: "${DB_PASSWORD:?DB_PASSWORD no está configurada}"
 
     ports:
       - "1433:1433"
@@ -43,8 +43,8 @@ services:
     container_name: q10-rabbitmq
 
     environment:
-      RABBITMQ_DEFAULT_USER: "guest"
-      RABBITMQ_DEFAULT_PASS: "guest"
+      RABBITMQ_DEFAULT_USER: "${RABBITMQ_USER:?RABBITMQ_USER no está configurado}"
+      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD no está configurado}"
 
     ports:
       - "5672:5672"
@@ -89,13 +89,26 @@ services:
       ASPNETCORE_ENVIRONMENT: "Production"
       ASPNETCORE_URLS: "http://+:8080"
 
-      ConnectionStrings__DefaultConnection: "Server=sqlserver,1433;Database=Q10Pedidos;User Id=sa;Password=S4Port@2026;TrustServerCertificate=True"
+      ConnectionStrings__DefaultConnection: "Server=sqlserver,1433;Database=${DB_NAME};User Id=${DB_USER};Password=${DB_PASSWORD};TrustServerCertificate=True"
 
-      RabbitMQ__Host: "rabbitmq"
-      RabbitMQ__Port: "5672"
+      RabbitMQ__Host: "${RABBITMQ_HOST}"
+      RabbitMQ__Port: "${RABBITMQ_PORT}"
+      RabbitMQ__UserName: "${RABBITMQ_USER}"
+      RabbitMQ__Password: "${RABBITMQ_PASSWORD}"
 
     ports:
       - "8080:8080"
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "bash -c 'echo > /dev/tcp/127.0.0.1/8080' || exit 1"
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
 
     restart: unless-stopped
 
@@ -112,7 +125,7 @@ services:
 
     depends_on:
       orders-api:
-        condition: service_started
+        condition: service_healthy
       sqlserver:
         condition: service_healthy
       rabbitmq:
@@ -121,10 +134,12 @@ services:
     environment:
       DOTNET_ENVIRONMENT: "Production"
 
-      ConnectionStrings__DefaultConnection: "Server=sqlserver,1433;Database=Q10Pedidos;User Id=sa;Password=S4Port@2026;TrustServerCertificate=True"
+      ConnectionStrings__DefaultConnection: "Server=sqlserver,1433;Database=${DB_NAME};User Id=${DB_USER};Password=${DB_PASSWORD};TrustServerCertificate=True"
 
-      RabbitMQ__Host: "rabbitmq"
-      RabbitMQ__Port: "5672"
+      RabbitMQ__Host: "${RABBITMQ_HOST}"
+      RabbitMQ__Port: "${RABBITMQ_PORT}"
+      RabbitMQ__UserName: "${RABBITMQ_USER}"
+      RabbitMQ__Password: "${RABBITMQ_PASSWORD}"
 
     restart: unless-stopped
 
