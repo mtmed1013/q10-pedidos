@@ -27,4 +27,11 @@ public class StockRepository : IStockRepository
         .ToListAsync();
     }
 
+    public async Task<Stock?> GetBySkuAsync(string sku)
+    {
+        return await _context.Stock
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Sku == sku);
+    }
+
 }

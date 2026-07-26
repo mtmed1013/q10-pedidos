@@ -1,5 +1,6 @@
 using System;
 using Orders.API.Dtos;
+using Orders.API.Entities;
 using Orders.API.Exceptions;
 
 namespace Orders.API.Services.Validators
@@ -16,6 +17,13 @@ namespace Orders.API.Services.Validators
             
             if(string.IsNullOrWhiteSpace(dto.Sku))
                 throw new CustomException(400, "El Sku es requerido.");
+
+            if(dto.Cantidad <= 0)
+                throw new CustomException(400, "La cantidad debe ser mayor que cero.");
+            
+            if(dto.Cantidad > 100)
+                throw new CustomException(400, "La cantidad no puede ser mayor a 100.");
         }
+
     }
 }

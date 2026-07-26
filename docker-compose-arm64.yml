@@ -1,7 +1,13 @@
 services:
   sqlserver:
-    image: mcr.microsoft.com/mssql/server:2022-latest
+    # Para tu Mac ARM/M4.
+    # En un servidor Linux x64 se debería usar:
+    # image: mcr.microsoft.com/mssql/server:2022-latest
+    image: mcr.microsoft.com/azure-sql-edge:latest
     container_name: q10-sqlserver
+
+    cap_add:
+      - SYS_PTRACE
 
     environment:
       ACCEPT_EULA: "Y"
@@ -14,6 +20,8 @@ services:
       - sqlserver_data:/var/opt/mssql
 
     healthcheck:
+      # Azure SQL Edge ARM no tiene garantizado sqlcmd dentro de la imagen.
+      # Comprobamos que SQL ya esté escuchando en el puerto 1433.
       test:
         [
           "CMD-SHELL",

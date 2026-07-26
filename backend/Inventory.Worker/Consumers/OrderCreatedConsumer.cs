@@ -3,6 +3,7 @@ using System.Text.Json;
 using Inventory.Worker.Messages;
 using Inventory.Worker.Messaging;
 using Inventory.Worker.Messaging.Interfaces;
+using Inventory.Worker.Repositories.Interfaces;
 using Inventory.Worker.Services.Interfaces;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
@@ -18,8 +19,7 @@ public class OrderCreatedConsumer : BackgroundService
     public OrderCreatedConsumer(
         IServiceScopeFactory scopeFactory,
         IConfiguration configuration,
-        ILogger<OrderCreatedConsumer> logger
-        )
+        ILogger<OrderCreatedConsumer> logger)
     {
         _scopeFactory = scopeFactory;
         _configuration = configuration;
@@ -31,12 +31,11 @@ public class OrderCreatedConsumer : BackgroundService
         var factory = new ConnectionFactory
         {
             HostName = _configuration["RabbitMQ:Host"] ?? "localhost",
-            Port = int.Parse(
-                _configuration["RabbitMQ:Port"] ?? "5672"
-            )
+            Port = int.Parse(_configuration["RabbitMQ:Port"] ?? "5672")
         };
 
-        RabbitMQ.Client.IConnection connection = null;
+        IConnection? connection = null;
+
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -51,53 +50,63 @@ public class OrderCreatedConsumer : BackgroundService
             }
         }
 
-        var channel = await connection.CreateChannelAsync();
+        if (connection is null)
+            return;
+
+        using var activeConnection = connection;
+        using var channel = await activeConnection.CreateChannelAsync();
 
         await channel.QueueDeclareAsync(
             queue: QueueNames.OrderCreated,
             durable: true,
             exclusive: false,
-            autoDelete: false
-        );
+            autoDelete: false);
 
         var consumer = new AsyncEventingBasicConsumer(channel);
 
-        consumer.ReceivedAsync += async (sender, args) =>
+        consumer.ReceivedAsync += async (_, args) =>
         {
             try
             {
-                var body = args.Body.ToArray();
-                var json = Encoding.UTF8.GetString(body);
+                var json = Encoding.UTF8.GetString(args.Body.ToArray());
+                var message = JsonSerializer.Deserialize<OrderCreatedMessage>(json);
 
-                var message =
-                    JsonSerializer.Deserialize<OrderCreatedMessage>(json);
-
-                if (message == null)
+                if (message is null)
+                {
+                    await channel.BasicNackAsync(args.DeliveryTag, false, false);
                     return;
-
-                _logger.LogInformation(
-                    "OrderCreated recibido: {OrderId} - SKU: {Sku} - Cantidad: {Cantidad}",
-                    message.OrderId,
-                    message.Sku,
-                    message.Cantidad
-                );
+                }
 
                 using var scope = _scopeFactory.CreateScope();
+                var inboundRepository = scope.ServiceProvider
+                    .GetRequiredService<IInboundOrderRepository>();
+                var inventoryService = scope.ServiceProvider
+                    .GetRequiredService<IInventoryService>();
+                var publisher = scope.ServiceProvider
+                    .GetRequiredService<IMessagePublisher>();
 
-                var inventoryService =
-                    scope.ServiceProvider
-                        .GetRequiredService<IInventoryService>();
+                var inbound = await inboundRepository.GetByIdAsync(message.EventId);
 
-
-                bool reserved = await inventoryService.ProcessOrderAsync(
-                    message.OrderId,
-                    message.Sku,
-                    message.Cantidad
-                );
-
-                var publisher = scope.ServiceProvider.GetRequiredService<IMessagePublisher>();
-                if (reserved)
+                if (inbound is null)
                 {
+                    await inventoryService.ProcessOrderAsync(
+                        message.EventId,
+                        message.OrderId,
+                        message.Sku,
+                        message.Cantidad);
+
+                    inbound = await inboundRepository.GetByIdAsync(message.EventId);
+                }
+
+                if (inbound?.Estado == "Pending" && inbound.HasStock)
+                {
+                    await inventoryService.ReserveStockAsync(
+                        inbound.Sku,
+                        inbound.Cantidad);
+
+                    inbound.Estado = "Reserved";
+                    await inboundRepository.UpdateAsync(inbound);
+
                     await publisher.PublishAsync(
                         new StockReservedMessage
                         {
@@ -107,11 +116,13 @@ public class OrderCreatedConsumer : BackgroundService
                             Cantidad = message.Cantidad,
                             OcurridoEn = DateTime.UtcNow
                         },
-                        QueueNames.StockReserved
-                    );
+                        QueueNames.StockReserved);
                 }
-                else
+                else if (inbound?.Estado == "Pending")
                 {
+                    inbound.Estado = "Rejected";
+                    await inboundRepository.UpdateAsync(inbound);
+
                     await publisher.PublishAsync(
                         new StockRejectedMessage
                         {
@@ -122,39 +133,23 @@ public class OrderCreatedConsumer : BackgroundService
                             Motivo = "Stock insuficiente",
                             OcurridoEn = DateTime.UtcNow
                         },
-                        QueueNames.StockRejected
-                    );
+                        QueueNames.StockRejected);
                 }
 
-                await channel.BasicAckAsync(
-                    args.DeliveryTag,
-                    false
-                );
+                await channel.BasicAckAsync(args.DeliveryTag, false);
             }
             catch (Exception ex)
             {
-                _logger.LogError(
-                    ex,
-                    "Error procesando OrderCreated"
-                );
-
-                await channel.BasicNackAsync(
-                    args.DeliveryTag,
-                    false,
-                    true
-                );
+                _logger.LogError(ex, "Error procesando OrderCreated");
+                await channel.BasicNackAsync(args.DeliveryTag, false, true);
             }
         };
 
         await channel.BasicConsumeAsync(
             queue: QueueNames.OrderCreated,
             autoAck: false,
-            consumer: consumer
-        );
+            consumer: consumer);
 
-        await Task.Delay(
-            Timeout.Infinite,
-            stoppingToken
-        );
+        await Task.Delay(Timeout.Infinite, stoppingToken);
     }
 }

@@ -7,4 +7,5 @@ namespace Orders.API.Repositories.Interfaces;
 public interface IStockRepository
 {
     Task<IEnumerable<ListBoxDto>> GetListAsync();
+    Task<Stock> GetBySkuAsync(string sku);
 }

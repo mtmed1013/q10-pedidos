@@ -16,11 +16,14 @@ public class OrderService : IOrderService
 {
     private readonly IOrderRepository _repository;
     private readonly IMessagePublisher _publisher;
+    private readonly IStockRepository _stockRepository;
 
-    public OrderService(IOrderRepository repository, IMessagePublisher publisher)
+    public OrderService(IOrderRepository repository, IMessagePublisher publisher, 
+    IStockRepository stockRepository)
     {
         _repository = repository;
         _publisher = publisher;
+        _stockRepository = stockRepository;
     }
 
     public async Task<Pedido> GetByIdAsync(Guid uuid)
@@ -39,6 +42,8 @@ public class OrderService : IOrderService
     {
         OrderValidator.ValidateAdd(dto);
         Pedido entity = OrderTransform.TransformToEntity(dto);
+        Stock stock = await _stockRepository.GetBySkuAsync(dto.Sku);
+        StockValidator.ValidateIfExistsBeforeCreated(stock);
         await _repository.AddAsync(entity);
         await _publisher.PublishAsync(
         new OrderCreatedMessage

@@ -39,7 +39,24 @@ public class StockReservedConsumer : BackgroundService
         };
 
 
-        var connection = await factory.CreateConnectionAsync();
+        IConnection? connection = null;
+
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                connection = await factory.CreateConnectionAsync();
+                break;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error connecting to RabbitMQ, retrying in 5 seconds...");
+                await Task.Delay(5000, stoppingToken);
+            }
+        }
+
+        if (connection == null)
+            return;
 
         var channel = await connection.CreateChannelAsync();
 
@@ -60,19 +77,27 @@ public class StockReservedConsumer : BackgroundService
             try
             {
                 var body = args.Body.ToArray();
-
                 var json = Encoding.UTF8.GetString(body);
-
                 var message =
                     JsonSerializer.Deserialize<StockReservedMessage>(json);
 
 
-                if(message == null)
+                if (message is null)
+                {
+                    _logger.LogWarning(
+                        "Mensaje StockReserved inválido. Tag: {Tag}",
+                        args.DeliveryTag);
+
+                    await channel.BasicNackAsync(
+                        args.DeliveryTag,
+                        multiple: false,
+                        requeue: false);
+
                     return;
+                }
 
 
                 using var scope = _scopeFactory.CreateScope();
-
 
                 var repository =
                     scope.ServiceProvider
@@ -81,8 +106,21 @@ public class StockReservedConsumer : BackgroundService
                 var pedido =
                     await repository.GetByIdAsync(message.OrderId);
 
+                if (pedido is null)
+                {
+                    _logger.LogWarning(
+                        "Pedido {OrderId} no existe para StockReserved",
+                        message.OrderId);
 
-                if(pedido != null)
+                    await channel.BasicNackAsync(
+                        args.DeliveryTag,
+                        multiple: false,
+                        requeue: false);
+
+                    return;
+                }
+
+                if (pedido != null && pedido.Estado == "Pending")
                 {
                     pedido.Estado = "Confirmed";
                     await repository.UpdAsync(pedido);
@@ -94,7 +132,7 @@ public class StockReservedConsumer : BackgroundService
                     false
                 );
             }
-            catch(Exception ex)
+            catch (Exception ex)
             {
                 _logger.LogError(
                     ex,
