@@ -4,8 +4,8 @@ El proyecto incluye los siguientes servicios:
 
 - **SQL Server**: almacenamiento de pedidos e inventario.
 - **RabbitMQ**: comunicación asíncrona entre la API y el worker.
-- **Orders.API**: API REST desarrollada en ASP.NET Core.
-- **Inventory.Worker**: procesamiento de reserva y rechazo de inventario.
+- **Orders.API**: API REST desarrollada en ASP.NET Core 10.
+- **Inventory.Worker**: procesamiento de reserva y rechazo de inventario en ASP.NET Core 10.
 - **Frontend**: aplicación Angular 22 servida mediante Nginx.
 
 # Diseño frontend
