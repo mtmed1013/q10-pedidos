@@ -8,7 +8,9 @@ El proyecto incluye los siguientes servicios:
 - **Inventory.Worker**: procesamiento de reserva y rechazo de inventario en ASP.NET Core 10.
 - **Frontend**: aplicación Angular 22 servida mediante Nginx.
 
-## Arquitectura x64: configuración predeterminada
+# ¿Como puedo desplegar el proyecto ?
+
+## En Arquitectura x64 (La de todos): configuración predeterminada
 
 El archivo `docker-compose.yml` está configurado por defecto para ejecutar **SQL Server 2022** en servidores o computadores con arquitectura `x86_64`/`amd64`.
 
