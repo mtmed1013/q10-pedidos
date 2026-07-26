@@ -160,7 +160,8 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.q10-pedidos.rule=Host(`${DOMAIN:-q10.mtmed.site}`)"
-      - "traefik.http.routers.q10-pedidos.entrypoints=web"
+      - "traefik.http.routers.q10-pedidos.entrypoints=websecure"
+      - "traefik.http.routers.q10-pedidos.tls.certResolver=letsencrypt"
       - "traefik.http.services.q10-pedidos.loadbalancer.server.port=80"
       - "traefik.docker.network=dokploy-network"
 
