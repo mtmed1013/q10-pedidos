@@ -8,6 +8,52 @@ El proyecto incluye los siguientes servicios:
 - **Inventory.Worker**: procesamiento de reserva y rechazo de inventario en ASP.NET Core 10.
 - **Frontend**: aplicación Angular 22 servida mediante Nginx.
 
+## Arquitectura x64: configuración predeterminada
+
+El archivo `docker-compose.yml` está configurado por defecto para ejecutar **SQL Server 2022** en servidores o computadores con arquitectura `x86_64`/`amd64`.
+
+Esta es la configuración que debe utilizarse normalmente en:
+
+- Servidores Linux x64.
+- Máquinas con procesadores Intel.
+- Máquinas con procesadores AMD.
+- Plataformas de despliegue como Dokploy sobre servidores x64.
+
+Ejecuta para este tipo de equipos asi
+
+```bash
+docker compose up -d --build
+```
+
+---
+
+## Equipos ARM y Apple Silicon
+
+La imagen estándar de SQL Server 2022 puede presentar problemas al ejecutarse mediante emulación en equipos ARM, como los Mac con procesadores Apple Silicon M1, M2, M3, M4, M5.
+
+Para ejecutar el proyecto localmente en uno de estos equipos, ejecuta el siguiente comando:
+
+```bash
+docker compose -f docker-compose-arm64.yml up -d --build
+
+```
+Docker Compose construirá y levantará los servicios respetando el siguiente orden:
+
+
+```text
+SQL Server ───┐
+              ├── Orders.API ─── Inventory.Worker
+RabbitMQ ─────┘         │
+                        └── Frontend
+```
+
+SQL Server y RabbitMQ cuentan con comprobaciones de estado. Orders.API espera a que ambos estén disponibles y ejecuta sus migraciones.
+
+Inventory.Worker espera a que Orders.API esté saludable antes de iniciar. Esto garantiza que las migraciones de `Pedidos` y `Stock` se ejecuten antes de la migración de `InboundOrder`.
+
+---
+
+
 # Diseño frontend
 
 Para este caso en el registor de Pedido, me tome el atrevimiento de crear una lista desplegable para seleccionar los productos con el SKU, debido a que me parecio una manera mas natural de realizar un pedido sobre lo existente.
@@ -211,50 +257,6 @@ docker compose version
 
 ---
 
-## Arquitectura x64: configuración predeterminada
-
-El archivo `docker-compose.yml` está configurado por defecto para ejecutar **SQL Server 2022** en servidores o computadores con arquitectura `x86_64`/`amd64`.
-
-Esta es la configuración que debe utilizarse normalmente en:
-
-- Servidores Linux x64.
-- Máquinas con procesadores Intel.
-- Máquinas con procesadores AMD.
-- Plataformas de despliegue como Dokploy sobre servidores x64.
-
-Ejecuta para este tipo de equipos asi
-
-```bash
-docker compose up -d --build
-```
-
----
-
-## Equipos ARM y Apple Silicon
-
-La imagen estándar de SQL Server 2022 puede presentar problemas al ejecutarse mediante emulación en equipos ARM, como los Mac con procesadores Apple Silicon M1, M2, M3, M4, M5.
-
-Para ejecutar el proyecto localmente en uno de estos equipos, ejecuta el siguiente comando:
-
-```bash
-docker compose -f docker-compose-arm64.yml up -d --build
-
-```
-Docker Compose construirá y levantará los servicios respetando el siguiente orden:
-
-
-```text
-SQL Server ───┐
-              ├── Orders.API ─── Inventory.Worker
-RabbitMQ ─────┘         │
-                        └── Frontend
-```
-
-SQL Server y RabbitMQ cuentan con comprobaciones de estado. Orders.API espera a que ambos estén disponibles y ejecuta sus migraciones.
-
-Inventory.Worker espera a que Orders.API esté saludable antes de iniciar. Esto garantiza que las migraciones de `Pedidos` y `Stock` se ejecuten antes de la migración de `InboundOrder`.
-
----
 
 ## Migraciones y datos iniciales
 
